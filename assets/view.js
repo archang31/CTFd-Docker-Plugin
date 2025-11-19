@@ -2,7 +2,84 @@ CTFd._internal.challenge.data = undefined;
 CTFd._internal.challenge.renderer = null;
 CTFd._internal.challenge.preRender = function () {};
 CTFd._internal.challenge.render = null;
-CTFd._internal.challenge.postRender = function () {};
+CTFd._internal.challenge.postRender = function () {
+    // Initialize CTFd's hint functionality
+    // This ensures hints work properly even with custom challenge rendering
+    if (typeof CTFd !== 'undefined' && CTFd.ui && CTFd.ui.ezq) {
+        CTFd.lib.$(".challenge-hints button").off("click").on("click", function(event) {
+            event.preventDefault();
+            const hintId = CTFd.lib.$(this).attr("hint-id");
+
+            // First, fetch the hint to check if it's already unlocked
+            CTFd.fetch("/api/v1/hints/" + hintId, {
+                method: "GET",
+                credentials: "same-origin",
+                headers: {
+                    "Accept": "application/json",
+                    "Content-Type": "application/json"
+                }
+            }).then(function(response) {
+                return response.json();
+            }).then(function(response) {
+                if (response.success) {
+                    const hint = response.data;
+
+                    // Check if hint has content (already unlocked)
+                    if (hint.content) {
+                        // Hint is unlocked, show it directly
+                        CTFd.ui.ezq.ezAlert({
+                            title: hint.title || "Hint",
+                            body: hint.content,
+                            button: "Got it!"
+                        });
+                    } else {
+                        // Hint is locked, show unlock modal
+                        const cost = hint.cost || 0;
+                        CTFd.ui.ezq.ezQuery({
+                            title: "Unlock Hint?",
+                            body: "Are you sure you want to unlock this hint for " + cost + " points?",
+                            success: function() {
+                                const loadingModal = CTFd.ui.ezq.ezProgressModal();
+                                loadingModal.modal("show");
+
+                                // POST to unlock the hint
+                                CTFd.fetch("/api/v1/hints/" + hintId, {
+                                    method: "POST",
+                                    credentials: "same-origin",
+                                    headers: {
+                                        "Accept": "application/json",
+                                        "Content-Type": "application/json"
+                                    }
+                                }).then(function(response) {
+                                    return response.json();
+                                }).then(function(response) {
+                                    loadingModal.modal("hide");
+                                    if (response.success) {
+                                        const unlockedHint = response.data;
+                                        CTFd.ui.ezq.ezAlert({
+                                            title: unlockedHint.title || "Hint",
+                                            body: unlockedHint.content,
+                                            button: "Got it!"
+                                        });
+
+                                        // Update the hint button to show it's unlocked
+                                        CTFd.lib.$("button[hint-id='" + hintId + "']").addClass("btn-success").removeClass("btn-info");
+                                    } else {
+                                        CTFd.ui.ezq.ezAlert({
+                                            title: "Error",
+                                            body: response.errors ? response.errors.join("<br>") : "Failed to unlock hint",
+                                            button: "OK"
+                                        });
+                                    }
+                                });
+                            }
+                        });
+                    }
+                }
+            });
+        });
+    }
+};
 
 CTFd._internal.challenge.submit = function (preview) {
     var challenge_id = parseInt(CTFd.lib.$("#challenge-id").val());
