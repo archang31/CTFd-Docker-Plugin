@@ -155,15 +155,19 @@ class ContainerManager:
                 for container in containers:
                     delta_seconds = container.expires - int(time.time())
                     if delta_seconds < 0:
+                        # Delete database record FIRST to prevent race conditions
+                        # Store container_id before deleting the record
+                        container_id = container.container_id
+                        db.session.delete(container)
+                        db.session.commit()
+
+                        # Then kill the Docker container
                         try:
-                            self.kill_container(container.container_id)
+                            self.kill_container(container_id)
                         except ContainerException:
                             print(
                                 "[Container Expiry Job] Docker is not initialized. Please check your settings."
                             )
-
-                        db.session.delete(container)
-                        db.session.commit()
             finally:
                 # Always remove the session to prevent connection leaks
                 db.session.remove()
@@ -329,7 +333,16 @@ class ContainerManager:
             db.session.commit()
 
         except docker.errors.NotFound:
+            # Container doesn't exist, that's fine
             pass
+        except docker.errors.APIError as e:
+            # Handle 409 Conflict: container removal already in progress
+            if e.status_code == 409:
+                print(f"[Container Manager] Container {container_id} removal already in progress, skipping")
+                pass
+            else:
+                # Re-raise other API errors
+                raise
 
     def is_connected(self) -> bool:
         try:
