@@ -20,10 +20,7 @@ class ContainerChallengeModel(Challenges):
     ssh_username = db.Column(db.Text, nullable=True)
     ssh_password = db.Column(db.Text, nullable=True)
 
-    # Dynamic challenge properties
-    initial = db.Column(db.Integer, default=0)
-    minimum = db.Column(db.Integer, default=0)
-    decay = db.Column(db.Integer, default=0)
+    # Dynamic challenge properties are inherited from Challenges model
 
     # Random flag properties
     flag_mode = db.Column(db.Text, default="static")
