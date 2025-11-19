@@ -149,20 +149,24 @@ class ContainerManager:
             app = create_app()
 
         with app.app_context():
-            containers: "list[ContainerInfoModel]" = ContainerInfoModel.query.all()
+            try:
+                containers: "list[ContainerInfoModel]" = ContainerInfoModel.query.all()
 
-            for container in containers:
-                delta_seconds = container.expires - int(time.time())
-                if delta_seconds < 0:
-                    try:
-                        self.kill_container(container.container_id)
-                    except ContainerException:
-                        print(
-                            "[Container Expiry Job] Docker is not initialized. Please check your settings."
-                        )
+                for container in containers:
+                    delta_seconds = container.expires - int(time.time())
+                    if delta_seconds < 0:
+                        try:
+                            self.kill_container(container.container_id)
+                        except ContainerException:
+                            print(
+                                "[Container Expiry Job] Docker is not initialized. Please check your settings."
+                            )
 
-                    db.session.delete(container)
-                    db.session.commit()
+                        db.session.delete(container)
+                        db.session.commit()
+            finally:
+                # Always remove the session to prevent connection leaks
+                db.session.remove()
 
     @run_command
     def is_container_running(self, container_id: str) -> bool:
@@ -320,6 +324,9 @@ class ContainerManager:
                     else:
                         # If the flag wasn't used, delete it
                         db.session.delete(f)
+
+            # Commit the flag changes
+            db.session.commit()
 
         except docker.errors.NotFound:
             pass
