@@ -67,6 +67,11 @@ class ContainerChallenge(BaseChallenge):
 
     @classmethod
     def calculate_value(cls, challenge):
+        # Check if challenge has dynamic scoring fields set
+        if challenge.initial is None or challenge.minimum is None or challenge.decay is None:
+            # No dynamic scoring configured, skip calculation
+            return challenge
+
         Model = get_model()
 
         solve_count = (
@@ -124,6 +129,9 @@ class ContainerChallenge(BaseChallenge):
     def solve(cls, user, team, challenge, request):
         super().solve(user, team, challenge, request)
 
+        # Refresh the challenge from database to ensure we have the full ContainerChallengeModel
+        # with all attributes, not just the base Challenges attributes
+        db.session.refresh(challenge)
         cls.calculate_value(challenge)
 
     @classmethod
@@ -183,6 +191,7 @@ def load(app: Flask):
     # Ensure database is initialized
     db.create_all()
 
+    # Register the challenge type
     CHALLENGE_CLASSES["container"] = ContainerChallenge
 
     register_plugin_assets_directory(
