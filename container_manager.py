@@ -149,20 +149,28 @@ class ContainerManager:
             app = create_app()
 
         with app.app_context():
-            containers: "list[ContainerInfoModel]" = ContainerInfoModel.query.all()
+            try:
+                containers: "list[ContainerInfoModel]" = ContainerInfoModel.query.all()
 
-            for container in containers:
-                delta_seconds = container.expires - int(time.time())
-                if delta_seconds < 0:
-                    try:
-                        self.kill_container(container.container_id)
-                    except ContainerException:
-                        print(
-                            "[Container Expiry Job] Docker is not initialized. Please check your settings."
-                        )
+                for container in containers:
+                    delta_seconds = container.expires - int(time.time())
+                    if delta_seconds < 0:
+                        # Delete database record FIRST to prevent race conditions
+                        # Store container_id before deleting the record
+                        container_id = container.container_id
+                        db.session.delete(container)
+                        db.session.commit()
 
-                    db.session.delete(container)
-                    db.session.commit()
+                        # Then kill the Docker container
+                        try:
+                            self.kill_container(container_id)
+                        except ContainerException:
+                            print(
+                                "[Container Expiry Job] Docker is not initialized. Please check your settings."
+                            )
+            finally:
+                # Always remove the session to prevent connection leaks
+                db.session.remove()
 
     @run_command
     def is_container_running(self, container_id: str) -> bool:
@@ -291,48 +299,50 @@ class ContainerManager:
 
     @run_command
     def kill_container(self, container_id: str):
-        # Try to kill and remove the container
         try:
             container = self.client.containers.get(container_id)
             container.kill()
             container.remove()
+
+            container_info = ContainerInfoModel.query.filter_by(
+                container_id=container_id
+            ).first()
+            if not container_info:
+                return  # No matching record => nothing else to do
+
+            challenge = container_info.challenge
+
+            used_flags = ContainerFlagModel.query.filter_by(
+                container_id=container_id
+            ).all()
+
+            if challenge.flag_mode == "static":
+                # Remove all flags for static-mode challenges (ignore used or not used)
+                for f in used_flags:
+                    db.session.delete(f)
+            else:
+                for f in used_flags:
+                    if f.used:
+                        # Keep this flag, but remove its container reference
+                        f.container_id = None
+                    else:
+                        # If the flag wasn't used, delete it
+                        db.session.delete(f)
+
+            # Commit the flag changes
+            db.session.commit()
+
         except docker.errors.NotFound:
-            # Container doesn't exist, nothing to do with Docker
+            # Container doesn't exist, that's fine
             pass
         except docker.errors.APIError as e:
-            # Handle 409 Conflict error when container removal is already in progress
+            # Handle 409 Conflict: container removal already in progress
             if e.status_code == 409:
-                # Container is already being removed, ignore this error
+                print(f"[Container Manager] Container {container_id} removal already in progress, skipping")
                 pass
             else:
                 # Re-raise other API errors
                 raise
-
-        # Clean up database records regardless of container state
-        container_info = ContainerInfoModel.query.filter_by(
-            container_id=container_id
-        ).first()
-        if not container_info:
-            return  # No matching record => nothing else to do
-
-        challenge = container_info.challenge
-
-        used_flags = ContainerFlagModel.query.filter_by(
-            container_id=container_id
-        ).all()
-
-        if challenge.flag_mode == "static":
-            # Remove all flags for static-mode challenges (ignore used or not used)
-            for f in used_flags:
-                db.session.delete(f)
-        else:
-            for f in used_flags:
-                if f.used:
-                    # Keep this flag, but remove its container reference
-                    f.container_id = None
-                else:
-                    # If the flag wasn't used, delete it
-                    db.session.delete(f)
 
     def is_connected(self) -> bool:
         try:

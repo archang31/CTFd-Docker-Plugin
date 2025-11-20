@@ -189,7 +189,7 @@ container_manager = None  # Global
 
 def load(app: Flask):
     # Ensure database is initialized
-    app.db.create_all()
+    db.create_all()
 
     # Register the challenge type
     CHALLENGE_CLASSES["container"] = ContainerChallenge
@@ -215,6 +215,6 @@ def load(app: Flask):
     # Register the blueprints
     app.register_blueprint(admin_bp)  # Admin APIs
     app.register_blueprint(containers_bp) # User APIs
-
-
     app.register_blueprint(base_bp)
+
+    print(" * CTFd Container Plugin loaded")
