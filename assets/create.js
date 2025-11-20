@@ -36,7 +36,6 @@ fetch(path, {
         containerImageDefault.innerHTML = "Choose an image...";
         containerImage.removeAttribute("disabled");
     }
-    console.log(data);
 })
 .catch(error => {
     // Handle fetch error
