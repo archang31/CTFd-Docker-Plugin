@@ -67,6 +67,11 @@ class ContainerChallenge(BaseChallenge):
 
     @classmethod
     def calculate_value(cls, challenge):
+        # Check if challenge has dynamic scoring fields set
+        if challenge.initial is None or challenge.minimum is None or challenge.decay is None:
+            # No dynamic scoring configured, skip calculation
+            return challenge
+
         Model = get_model()
 
         solve_count = (
