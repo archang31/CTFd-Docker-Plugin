@@ -291,38 +291,48 @@ class ContainerManager:
 
     @run_command
     def kill_container(self, container_id: str):
+        # Try to kill and remove the container
         try:
             container = self.client.containers.get(container_id)
             container.kill()
             container.remove()
-
-            container_info = ContainerInfoModel.query.filter_by(
-                container_id=container_id
-            ).first()
-            if not container_info:
-                return  # No matching record => nothing else to do
-
-            challenge = container_info.challenge
-
-            used_flags = ContainerFlagModel.query.filter_by(
-                container_id=container_id
-            ).all()
-
-            if challenge.flag_mode == "static":
-                # Remove all flags for static-mode challenges (ignore used or not used)
-                for f in used_flags:
-                    db.session.delete(f)
-            else:
-                for f in used_flags:
-                    if f.used:
-                        # Keep this flag, but remove its container reference
-                        f.container_id = None
-                    else:
-                        # If the flag wasn't used, delete it
-                        db.session.delete(f)
-
         except docker.errors.NotFound:
+            # Container doesn't exist, nothing to do with Docker
             pass
+        except docker.errors.APIError as e:
+            # Handle 409 Conflict error when container removal is already in progress
+            if e.status_code == 409:
+                # Container is already being removed, ignore this error
+                pass
+            else:
+                # Re-raise other API errors
+                raise
+
+        # Clean up database records regardless of container state
+        container_info = ContainerInfoModel.query.filter_by(
+            container_id=container_id
+        ).first()
+        if not container_info:
+            return  # No matching record => nothing else to do
+
+        challenge = container_info.challenge
+
+        used_flags = ContainerFlagModel.query.filter_by(
+            container_id=container_id
+        ).all()
+
+        if challenge.flag_mode == "static":
+            # Remove all flags for static-mode challenges (ignore used or not used)
+            for f in used_flags:
+                db.session.delete(f)
+        else:
+            for f in used_flags:
+                if f.used:
+                    # Keep this flag, but remove its container reference
+                    f.container_id = None
+                else:
+                    # If the flag wasn't used, delete it
+                    db.session.delete(f)
 
     def is_connected(self) -> bool:
         try:
