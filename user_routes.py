@@ -93,3 +93,15 @@ def route_stop_container():
         return {"error": "No container found"}, 400
     except ValueError as err:
         return {"error": str(err)}, 400
+
+@containers_bp.route("/api/stop_all", methods=["POST"])
+@authed_only
+@during_ctf_time_only
+@require_verified_emails
+@ratelimit(method="POST", limit=5, interval=60)
+def route_stop_all_containers():
+    try:
+        xid = get_current_user_or_team()
+        return kill_all_containers(container_manager, xid, is_team_mode())
+    except ValueError as err:
+        return {"error": str(err)}, 400
