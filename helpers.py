@@ -51,6 +51,40 @@ def kill_container(container_manager, container_id):
     return jsonify({"success": "Container killed"})
 
 
+def kill_all_containers(container_manager, xid, is_team):
+    """Kill and remove all running containers for a user or team"""
+    containers = ContainerInfoModel.query.filter_by(
+        team_id=xid if is_team else None,
+        user_id=None if is_team else xid,
+    ).all()
+
+    if not containers:
+        return jsonify({"error": "No containers found"}), 400
+
+    killed_count = 0
+    errors = []
+
+    for container in containers:
+        try:
+            container_manager.kill_container(container.container_id)
+            db.session.delete(container)
+            killed_count += 1
+        except ContainerException as e:
+            errors.append(f"Failed to kill container {container.container_id}: {str(e)}")
+        except Exception as e:
+            errors.append(f"Error removing container {container.container_id}: {str(e)}")
+
+    db.session.commit()
+
+    if errors:
+        return jsonify({
+            "success": f"Killed {killed_count} containers",
+            "errors": errors
+        }), 207  # Multi-status
+
+    return jsonify({"success": f"All {killed_count} containers killed"})
+
+
 def renew_container(container_manager, chal_id, xid, is_team):
     """Extend the expiration time of an active container"""
     challenge = ContainerChallengeModel.query.filter_by(id=chal_id).first()
@@ -114,10 +148,27 @@ def create_container(container_manager, chal_id, xid, is_team):
     ).count()
 
     if container_count >= max_containers:
+        # Get active containers with challenge information
+        active_containers = ContainerInfoModel.query.filter_by(
+            team_id=xid if is_team else None,
+            user_id=None if is_team else xid,
+        ).all()
+
+        containers_list = []
+        for container in active_containers:
+            containers_list.append({
+                "challenge_id": container.challenge_id,
+                "challenge_name": container.challenge.name if container.challenge else "Unknown",
+                "container_id": container.container_id,
+                "port": container.port,
+                "expires": container.expires
+            })
+
         return (
             jsonify(
                 {
-                    "error": f"Max containers ({max_containers}) reached. Please stop a running container before starting a new one."
+                    "error": f"Max containers ({max_containers}) reached. Please stop a running container before starting a new one.",
+                    "active_containers": containers_list
                 }
             ),
             400,

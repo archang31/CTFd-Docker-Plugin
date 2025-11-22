@@ -219,8 +219,13 @@ function container_request(challenge_id) {
     .then(data => {
         alert.innerHTML = ""; // Remove spinner
         if (data.error) {
-            alert.innerHTML = data.error;
-            alert.classList.add("alert-danger");
+            // Check if we have active containers list
+            if (data.active_containers && data.active_containers.length > 0) {
+                displayActiveContainersError(data, alert, challenge_id);
+            } else {
+                alert.innerHTML = data.error;
+                alert.classList.add("alert-danger");
+            }
             toggleChallengeCreate();
         } else if (data.message) {
             alert.innerHTML = data.message;
@@ -308,4 +313,64 @@ function container_stop(challenge_id) {
         console.error("Fetch error:", error);
     })
     .finally(enableButtons);
+}
+
+function container_stop_all() {
+    let alert = resetAlert();
+
+    if (!confirm("Are you sure you want to stop all active containers?")) {
+        enableButtons();
+        return;
+    }
+
+    fetch("/containers/api/stop_all", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "CSRF-Token": init.csrfNonce
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        alert.innerHTML = ""; // Remove spinner
+        if (data.error) {
+            alert.innerHTML = data.error;
+            alert.classList.add("alert-danger");
+        } else if (data.success) {
+            alert.innerHTML = data.success;
+            alert.classList.remove("alert-danger");
+            alert.classList.add("alert-success");
+            // Reload the page after a short delay to refresh the container status
+            setTimeout(() => {
+                location.reload();
+            }, 1500);
+        }
+    })
+    .catch(error => {
+        alert.innerHTML = "Error stopping containers.";
+        alert.classList.add("alert-danger");
+        console.error("Fetch error:", error);
+    })
+    .finally(enableButtons);
+}
+
+function displayActiveContainersError(data, alert, challenge_id) {
+    let html = '<div class="alert-danger p-3 rounded">';
+    html += '<strong>' + data.error + '</strong><br><br>';
+    html += '<strong>Your active containers:</strong><ul class="mb-3">';
+
+    data.active_containers.forEach(container => {
+        let expiryMinutes = Math.ceil((container.expires - Date.now() / 1000) / 60);
+        html += '<li>';
+        html += '<strong>' + container.challenge_name + '</strong> ';
+        html += '(Port: ' + container.port + ', Expires in: ' + expiryMinutes + ' min)';
+        html += '</li>';
+    });
+
+    html += '</ul>';
+    html += '<button class="btn btn-danger btn-sm" onclick="container_stop_all()">Destroy All Containers</button>';
+    html += '</div>';
+
+    alert.innerHTML = html;
 }
